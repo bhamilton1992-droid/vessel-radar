@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Vessel Radar</title>
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body, html { width: 100%; height: 100%; overflow: hidden; background: #0a0f18; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    #map { width: 100%; height: 100%; }
+
+    /* Floating Status Bar */
+    .status-bar {
+      position: absolute; top: 12px; left: 12px; z-index: 1000;
+      background: rgba(13, 20, 36, 0.88); backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 24px; padding: 6px 14px;
+      color: #e2e8f0; font-size: 13px; font-weight: 500;
+      display: flex; align-items: center; gap: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #eab308; }
+    .status-dot.online { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+    .status-dot.offline { background: #ef4444; }
+
+    /* Bottom Vessel Card (Phone friendly drawer) */
+    .vessel-drawer {
+      position: absolute; bottom: -250px; left: 0; right: 0; z-index: 1000;
+      background: #0d1527; border-top: 1px solid #1e293b;
+      padding: 16px; border-radius: 16px 16px 0 0;
+      transition: bottom 0.25s ease; color: #f8fafc;
+      box-shadow: 0 -4px 25px rgba(0,0,0,0.6);
+      max-width: 500px; margin: 0 auto;
+    }
+    .vessel-drawer.open { bottom: 0; }
+    .drawer-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .drawer-title { font-size: 17px; font-weight: 600; color: #38bdf8; }
+    .drawer-close { background: none; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; }
+    .drawer-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; font-size: 13px; margin-top: 8px; }
+    .stat-label { color: #64748b; font-size: 11px; text-transform: uppercase; }
+    .stat-val { font-weight: 500; color: #e2e8f0; }
+
+    /* SVG Marker Rotation */
+    .ship-icon { transition: transform 0.3s ease; transform-origin: center center; }
+  </style>
+</head>
+<body>
+
+  <div class="status-bar">
+    <div id="statusDot" class="status-dot"></div>
+    <span id="statusText">Connecting...</span>
+    <span style="color:#64748b;">|</span>
+    <span id="vesselCount">0 ships</span>
+  </div>
+
+  <div id="map"></div>
+
+  <!-- Mobile Inspector Card -->
+  <div id="drawer" class="vessel-drawer">
+    <div class="drawer-header">
+      <div id="shipName" class="drawer-title">Vessel Details</div>
+      <button class="drawer-close" onclick="closeDrawer()">✕</button>
+    </div>
+    <div class="drawer-grid">
+      <div><div class="stat-label">MMSI</div><div id="shipMmsi" class="stat-val">-</div></div>
+      <div><div class="stat-label">Speed / Course</div><div id="shipSpeed" class="stat-val">-</div></div>
+      <div><div class="stat-label">Type</div><div id="shipType" class="stat-val">-</div></div>
+      <div><div class="stat-label">Heading</div><div id="shipHeading" class="stat-val">-</div></div>
+    </div>
+  </div>
+
+  <script>
+    // 1. Base Map Layers
+    const darkMap = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; OpenStreetMap & CartoDB', maxZoom: 19
+    });
+    const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      attribution: 'Esri Satellite', maxZoom: 19
+    });
+
+    // 2. Navigational & River Overlays
+    const openSeaMarks = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+      attribution: 'OpenSeaMap', maxZoom: 18
+    });
+    
+    // NOAA Electronic Navigational Charts (Inland Rivers, Coastal, Buoys, Soundings)
+    const noaaCharts = L.tileLayer.wms('https://gis.chartmaker.ncd.noaa.gov/arcgis/rest/services/MCS/ENCOverlay/MapServer/exts/MaritimeChartService/WMSServer', {
+      layers: '0,1,2,3,4,5,6,7',
+      format: 'image/png',
+      transparent: true,
+      opacity: 0.75,
+      attribution: 'NOAA Inland & Marine Charts'
+    });
+
+    // Initialize Map
+    const map = L.map('map', {
+      center: [34.80, -87.67], // Centered around the Tennessee River (Pickwick/Wilson)
+      zoom: 11,
+      layers: [darkMap, openSeaMarks]
+    });
+
+    // Layer Toggle Controls (Top Right)
+    L.control.layers(
+      { "Streets / Voyager": darkMap, "Satellite": satellite },
+      { "River Nav Aids (OpenSeaMap)": openSeaMarks, "NOAA Nautical Charts": noaaCharts },
+      { position: 'topright' }
+    ).addTo(map);
+
+    // 3. Vessel Registry & Marker Rendering
+    const vessels = new Map();
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const vesselCount = document.getElementById('vesselCount');
+
+    function createShipSvg(heading, color = "#38bdf8") {
+      const rot = heading || 0;
+      return L.divIcon({
+        className: 'ship-wrapper',
+        html: `<svg class="ship-icon" style="transform: rotate(${rot}deg);" width="24" height="24" viewBox="0 0 24 24">
+                 <path d="M12 2 L19 21 L12 17 L5 21 Z" fill="${color}" stroke="#0f172a" stroke-width="1.5"/>
+               </svg>`,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
+      });
+    }
+
+    function openDrawer(v) {
+      document.getElementById('shipName').innerText = v.name || `Vessel ${v.mmsi}`;
+      document.getElementById('shipMmsi').innerText = v.mmsi;
+      document.getElementById('shipSpeed').innerText = `${(v.sog || 0).toFixed(1)} kts / ${Math.round(v.cog || 0)}°`;
+      document.getElementById('shipType').innerText = v.type || "Commercial / Tug";
+      document.getElementById('shipHeading').innerText = `${v.heading || 0}°`;
+      document.getElementById('drawer').classList.add('open');
+    }
+
+    function closeDrawer() {
+      document.getElementById('drawer').classList.remove('open');
+    }
+
+    // 4. WebSocket connection to our cloud relay
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${wsProtocol}//${window.location.host}`);
+
+    ws.onopen = () => {
+      statusDot.className = 'status-dot online';
+      statusText.innerText = 'Live Feed';
+    };
+
+    ws.onclose = () => {
+      statusDot.className = 'status-dot offline';
+      statusText.innerText = 'Offline';
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        const type = msg.MessageType;
+        const meta = msg.MetaData;
+
+        if (type === "PositionReport" || type === "StandardClassBPositionReport") {
+          const report = msg.Message[type];
+          const mmsi = meta.MMSI;
+          const lat = meta.latitude;
+          const lon = meta.longitude;
+          const heading = report.TrueHeading === 511 ? report.Cog : report.TrueHeading;
+          const sog = report.Sog;
+
+          let ship = vessels.get(mmsi);
+          if (!ship) {
+            const marker = L.marker([lat, lon], { icon: createShipSvg(heading) }).addTo(map);
+            ship = { mmsi, lat, lon, heading, sog, name: meta.ShipName?.trim(), marker };
+            marker.on('click', () => openDrawer(ship));
+            vessels.set(mmsi, ship);
+          } else {
+            ship.lat = lat;
+            ship.lon = lon;
+            ship.heading = heading;
+            ship.sog = sog;
+            if (meta.ShipName) ship.name = meta.ShipName.trim();
+            ship.marker.setLatLng([lat, lon]);
+            ship.marker.setIcon(createShipSvg(heading));
+          }
+          vesselCount.innerText = `${vessels.size} vessels`;
+        }
+      } catch (e) {
+        // Skip malformed frames
+      }
+    };
+  </script>
+</body>
+</html>
