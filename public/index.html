@@ -7,7 +7,6 @@
   
   <!-- Reliable Leaflet CDN links -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <!-- ArcGIS Dynamic Map Support -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/esri-leaflet/3.0.12/esri-leaflet.js"></script>
 
@@ -101,25 +100,28 @@
       maxZoom: 19
     });
 
-    // 1. USACE Inland River Chart Overlay (Sailing Lines, Mile Markers, Locks, Cells)
-    // Uses ArcGIS MapServer export tiles for high crispness
-   const usaceRiverCharts = L.esri.dynamicMapLayer({
-      url: 'https://ags02.sec.usace.army.mil/server/rest/services/IENC/IENC_Web_Map/MapServer',
+    // 1. NOAA Official Navigational Charts (WMS - Standard image requests, no CORS blocks)
+    // Provides depth soundings, buoys, lights, daybeacons, dredged channels, and hazards
+    const noaaCharts = L.tileLayer.wms('https://gis.chartmaker.ncd.noaa.gov/arcgis/rest/services/MCS/ENCOverlay/MapServer/exts/MaritimeChartService/WMSServer', {
+      layers: '0',
+      format: 'image/png',
+      transparent: true,
+      version: '1.3.0',
       opacity: 0.85,
-      useCors: true
+      attribution: 'NOAA Office of Coast Survey'
     });
 
-    // 2. NOAA Inland / Coastal Navigational ENC Overlay (Depth soundings, buoys, hazards)
-    const noaaCharts = L.esri.dynamicMapLayer({
-      url: 'https://gis.chartmaker.ncd.noaa.gov/arcgis/rest/services/MCS/ENCOverlay/MapServer/exts/MaritimeChartService/MapServer',
-      opacity: 0.75,
-      useCors: true
+    // 2. OpenSeaMap Seamarks (Buoys, beacons, port signals, lock gates)
+    const openSeaMarks = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+      attribution: 'OpenSeaMap'
     });
 
-    // 3. OpenSeaMap (Buoys & Seamarks)
-    const seaMarks = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
-      attribution: 'OpenSeaMap',
-      maxZoom: 18
+    // 3. OpenRailway & Infrastructure Layer (Shows rail drawbridges, locks, & crossing structures)
+    const riverInfrastructure = L.tileLayer('https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      opacity: 0.7,
+      attribution: 'OpenRailwayMap'
     });
 
     const map = L.map('map', {
@@ -137,16 +139,17 @@
         "Satellite": satLayer 
       },
       { 
-        "USACE River Charts (Miles/Locks)": usaceRiverCharts,
         "NOAA Nautical Charts": noaaCharts,
-        "Buoys & Daymarks": seaMarks
+        "River Aids & Seamarks": openSeaMarks,
+        "Bridges & Locks Infrastructure": riverInfrastructure
       },
       { position: 'topright', collapsed: true }
     ).addTo(map);
 
-    // Optional: Turn USACE on by default
-    usaceRiverCharts.addTo(map);
-
+    // Turn both on by default so they display immediately
+    noaaCharts.addTo(map);
+    openSeaMarks.addTo(map);
+    
     // 2. State & UI Helpers
     const vessels = new Map();
     const statusDot = document.getElementById('statusDot');
