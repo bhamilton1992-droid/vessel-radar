@@ -26,11 +26,16 @@ function connectAISStream() {
 
   aisSocket.on("open", () => {
     console.log("Connected to AISStream! Subscribing...");
-    // Worldwide bounding box (or narrow down as needed)
+    // Contiguous United States (lower 48)
     const subscription = {
       APIKey: AIS_KEY,
-      BoundingBoxes: [[[-90.0, -180.0], [90.0, 180.0]]],
-      FilterMessageTypes: ["PositionReport", "ShipStaticData"]
+      BoundingBoxes: [[[24.0, -125.0], [49.5, -66.5]]],
+      FilterMessageTypes: [
+        "PositionReport",
+        "ShipStaticData", 
+        "StandaredClassBPositionReport",
+        "ExtendedClassBPositionReport"
+      ]
     };
     aisSocket.send(JSON.stringify(subscription));
   });
