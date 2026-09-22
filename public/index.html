@@ -191,9 +191,24 @@
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
+
+        // Instant snapshot from server cache
+        if (msg.type === 'SNAPSHOT' && Array.isArray(msg.vessels)) {
+          msg.vessels.forEach(ship => {
+            if (!map.getBounds().pad(0.3).contains([ship.lat, ship.lon])) return;
+            if (!vessels.has(ship.mmsi)) {
+              const marker = L.marker([ship.lat, ship.lon], { icon: createShipSvg(ship.heading) }).addTo(map);
+              marker.on('click', () => openDrawer(ship));
+              vessels.set(ship.mmsi, { ...ship, marker });
+            }
+          });
+          vesselCount.innerText = `${vessels.size} ships`;
+          return;
+        }
+
+        // Handle live continuous updates
         const type = msg.MessageType;
         const meta = msg.MetaData;
-
         if (type === "PositionReport" || type === "StandardClassBPositionReport") {
           const report = msg.Message?.[type];
           if (!report) return;
@@ -201,15 +216,12 @@
           const mmsi = meta?.MMSI;
           const lat = meta?.Latitude ?? meta?.latitude ?? report?.Latitude;
           const lon = meta?.Longitude ?? meta?.longitude ?? report?.Longitude;
-
           if (!lat || !lon) return;
 
-          // Only add if it's within our current view
-          if (!map.getBounds().pad(0.1).contains([lat, lon])) return;
+          if (!map.getBounds().pad(0.2).contains([lat, lon])) return;
 
           const heading = (report.TrueHeading === 511 || report.TrueHeading === undefined)
-            ? (report.Cog || 0)
-            : report.TrueHeading;
+            ? (report.Cog || 0) : report.TrueHeading;
           const sog = report.Sog || 0;
 
           let ship = vessels.get(mmsi);
@@ -229,8 +241,6 @@
           }
           vesselCount.innerText = `${vessels.size} ships`;
         }
-      } catch (e) {
-        // Skip malformed frames
-      }
+      } catch (e) {}
     };
-  </script>
+    
