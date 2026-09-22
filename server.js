@@ -8,62 +8,56 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 const PORT = process.env.PORT || 3000;
-const AIS_KEY = (process.env.AISSTREAM_API_KEY || '').trim();
+// Strip any accidental quotes or whitespace
+const AIS_KEY = (process.env.AISSTREAM_API_KEY || '').replace(/["']/g, '').trim();
 
-// Serve static web files
+// Serve frontend static files
 app.use(express.static(path.join(__dirname, 'public')));
 
 let aisSocket = null;
 function connectAISStream() {
   if (!AIS_KEY) {
-    console.error("FATAL: AISSTREAM_API_KEY environment variable is missing or empty!");
+    console.error("FATAL: AISSTREAM_API_KEY is empty on Render!");
     return;
   }
 
   console.log(`Connecting to AISStream with key: ${AIS_KEY.substring(0, 4)}****`);
-  
-  // AISStream requires perMessageDeflate compression
+
+  // Connect with perMessageDeflate compression
   aisSocket = new WebSocket("wss://stream.aisstream.io/v0/stream", {
     perMessageDeflate: true
   });
 
   aisSocket.on("open", () => {
     console.log("Connected to AISStream! Sending subscription...");
-    
-    // Exact format required: [[[NorthLat, WestLon], [SouthLat, EastLon]]]
+
+    // Official AISStream subscription format: 3D Array [[[lat1, lon1], [lat2, lon2]]]
     const subscription = {
       APIKey: AIS_KEY,
       BoundingBoxes: [
-        // US Gulf Coast & Inland River Basins (New Orleans, Houston, Mobile, MS/TN/OH Rivers)
-        [[[36.5, -95.0], [24.5, -84.0]]],
-        // US East Coast (Florida up to New York / Chesapeake)
-        [[[41.5, -82.0], [25.0, -70.0]]],
-        // US West Coast (SoCal up to Puget Sound)
-        [[[49.0, -125.0], [32.0, -117.0]]]
+        // US Gulf Coast & Lower Mississippi River Hub (High density, active 24/7)
+        [[30.5, -91.5], [28.5, -88.5]],
+        // Florida & East Coast
+        [[32.0, -82.0], [24.5, -79.0]]
       ],
       FilterMessageTypes: ["PositionReport"]
     };
-    
+
     aisSocket.send(JSON.stringify(subscription));
-    console.log("Subscription sent successfully!");
-    
-    let packetCount = 0;
-  aisSocket.on("message", (raw) => {
-    packetCount++;
-    if (packetCount % 50 === 0) {
-      console.log(`Relayed ${packetCount} live AIS frames...`);
-    }
-    const payload = raw.toString();
-    wss.clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(payload);
-      }
-    });
+    console.log("Subscription payload dispatched.");
   });
 
+  let messageCount = 0;
   aisSocket.on("message", (raw) => {
-    // Forward live stream to all connected phones/browsers
+    messageCount++;
+    if (messageCount === 1) {
+      console.log("SUCCESS: First live AIS packet received from AISStream!");
+    } else if (messageCount % 25 === 0) {
+      console.log(`Live feed active: relayed ${messageCount} vessels...`);
+    }
+
     const payload = raw.toString();
+    // Forward directly to browser / phone
     wss.clients.forEach(client => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(payload);
@@ -72,7 +66,7 @@ function connectAISStream() {
   });
 
   aisSocket.on("close", (code, reason) => {
-    console.log(`AISStream connection closed [Code: ${code}] Reason: ${reason ? reason.toString() : 'None'}. Reconnecting in 5s...`);
+    console.log(`AISStream closed [Code: ${code}] Reason: ${reason ? reason.toString() : 'None'}. Reconnecting in 5s...`);
     setTimeout(connectAISStream, 5000);
   });
 
