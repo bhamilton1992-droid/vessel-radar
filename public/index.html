@@ -166,11 +166,16 @@
 
         if (type === "PositionReport" || type === "StandardClassBPositionReport") {
           const report = msg.Message[type];
-          const mmsi = meta.MMSI;
-          const lat = meta.latitude;
-          const lon = meta.longitude;
-          const heading = report.TrueHeading === 511 ? report.Cog : report.TrueHeading;
-          const sog = report.Sog;
+          const mmsi = meta?.MMSI;
+          const lat = meta?.Latitude ?? meta?.latitude ?? report?.Latitude;
+          const lon = meta?.Longitude ?? meta?.longitude ?? report?.Longitude;
+
+          if (!lat || !lon) return;
+          
+          const heading = (report.TrueHeading === 511 || report.TrueHeading === undefined)
+          ? (report.Cog || 0)
+          : report.TrueHeading;
+          const sog = report.Sog || 0;
 
           let ship = vessels.get(mmsi);
           if (!ship) {
