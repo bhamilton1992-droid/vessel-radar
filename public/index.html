@@ -131,11 +131,21 @@
     // Force map recalculation to prevent black/blank rendering
     setTimeout(() => { map.invalidateSize(); }, 200);
 
-    L.control.layers(
-      { "Streets": osmLayer, "Satellite": satLayer },
-      { "River Nav Aids": seaMarks },
-      { position: 'topright' }
+   L.control.layers(
+      { 
+        "Streets": osmLayer, 
+        "Satellite": satLayer 
+      },
+      { 
+        "USACE River Charts (Miles/Locks)": usaceRiverCharts,
+        "NOAA Nautical Charts": noaaCharts,
+        "Buoys & Beacons": seaMarks
+      },
+      { position: 'topright', collapsed: true }
     ).addTo(map);
+
+    // Optional: Turn USACE on by default
+    usaceRiverCharts.addTo(map);
 
     // 2. State & UI Helpers
     const vessels = new Map();
