@@ -99,6 +99,24 @@
       maxZoom: 19
     });
 
+    // 1. USACE Inland River Chart Overlay (Sailing Lines, Mile Markers, Locks, Cells)
+    // Uses ArcGIS MapServer export tiles for high crispness
+    const usaceRiverCharts = L.tileLayer('https://ags02.sec.usace.army.mil/server/rest/services/IENC/IENC_Web_Map/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 18,
+      opacity: 0.85,
+      attribution: 'USACE Inland ENC'
+    });
+
+    // 2. NOAA Inland / Coastal Navigational ENC Overlay (Depth soundings, buoys, hazards)
+    const noaaCharts = L.tileLayer.wms('https://gis.chartmaker.ncd.noaa.gov/arcgis/rest/services/MCS/ENCOverlay/MapServer/exts/MaritimeChartService/WMSServer', {
+      layers: '0,1,2,3,4,5,6,7',
+      format: 'image/png',
+      transparent: true,
+      opacity: 0.8,
+      attribution: 'NOAA Office of Coast Survey'
+    });
+
+    // 3. OpenSeaMap (Buoys & Seamarks)
     const seaMarks = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
       attribution: 'OpenSeaMap',
       maxZoom: 18
