@@ -77,54 +77,50 @@
 
   <script>
     // 1. Base Map Layers
-    const darkMap = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-      attribution: 'Esri, HERE, Garmin', maxZoom: 16
+    const baseMap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors', maxZoom: 19
     });
-    
     const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
       attribution: 'Esri Satellite', maxZoom: 19
     });
 
-    // 2. Navigational & River Overlays
+    // Navigational River / Nautical Overlays
     const openSeaMarks = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
       attribution: 'OpenSeaMap', maxZoom: 18
     });
-    
-    // NOAA Electronic Navigational Charts (Inland Rivers, Coastal, Buoys, Soundings)
     const noaaCharts = L.tileLayer.wms('https://gis.chartmaker.ncd.noaa.gov/arcgis/rest/services/MCS/ENCOverlay/MapServer/exts/MaritimeChartService/WMSServer', {
       layers: '0,1,2,3,4,5,6,7',
       format: 'image/png',
       transparent: true,
       opacity: 0.75,
-      attribution: 'NOAA Inland & Marine Charts'
+      attribution: 'NOAA Charts'
     });
 
     // Initialize Map
     const map = L.map('map', {
-      center: [34.80, -87.67], // Centered around the Tennessee River (Pickwick/Wilson)
-      zoom: 11,
-      layers: [darkMap, openSeaMarks]
+      center: [34.80, -87.67], // Centered on local waterway
+      zoom: 12,
+      layers: [baseMap, openSeaMarks]
     });
 
-    // Layer Toggle Controls (Top Right)
     L.control.layers(
-      { "Streets / Voyager": darkMap, "Satellite": satellite },
-      { "River Nav Aids (OpenSeaMap)": openSeaMarks, "NOAA Nautical Charts": noaaCharts },
+      { "OpenStreetMap": baseMap, "Satellite": satellite },
+      { "Nav Aids / Seamarks": openSeaMarks, "NOAA River Charts": noaaCharts },
       { position: 'topright' }
     ).addTo(map);
 
-    // 3. Vessel Registry & Marker Rendering
+    // 2. State & Elements
     const vessels = new Map();
     const statusDot = document.getElementById('statusDot');
     const statusText = document.getElementById('statusText');
     const vesselCount = document.getElementById('vesselCount');
 
-    function createShipSvg(heading, color = "#38bdf8") {
+    function createShipSvg(heading, color = "#0284c7") {
       const rot = heading || 0;
       return L.divIcon({
         className: 'ship-wrapper',
         html: `<svg class="ship-icon" style="transform: rotate(${rot}deg);" width="24" height="24" viewBox="0 0 24 24">
-                 <path d="M12 2 L19 21 L12 17 L5 21 Z" fill="${color}" stroke="#0f172a" stroke-width="1.5"/>
+                 <path d="M12 2 L19 21 L12 17 L5 21 Z" fill="${color}" stroke="#ffffff" stroke-width="1.5"/>
                </svg>`,
         iconSize: [24, 24],
         iconAnchor: [12, 12]
@@ -135,7 +131,7 @@
       document.getElementById('shipName').innerText = v.name || `Vessel ${v.mmsi}`;
       document.getElementById('shipMmsi').innerText = v.mmsi;
       document.getElementById('shipSpeed').innerText = `${(v.sog || 0).toFixed(1)} kts / ${Math.round(v.cog || 0)}°`;
-      document.getElementById('shipType').innerText = v.type || "Commercial / Tug";
+      document.getElementById('shipType').innerText = v.type || "Commercial / Tow / Tug";
       document.getElementById('shipHeading').innerText = `${v.heading || 0}°`;
       document.getElementById('drawer').classList.add('open');
     }
@@ -144,13 +140,47 @@
       document.getElementById('drawer').classList.remove('open');
     }
 
-    // 4. WebSocket connection to our cloud relay
+    // 3. Connect WebSocket to your Server
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${wsProtocol}//${window.location.host}`);
+
+    function sendViewportBounds() {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      const b = map.getBounds();
+      // Format: [[NorthLat, WestLon], [SouthLat, EastLon]]
+      const box = [
+        [b.getNorth(), b.getWest()],
+        [b.getSouth(), b.getEast()]
+      ];
+      ws.send(JSON.stringify({ type: 'SET_BOUNDS', box: box }));
+    }
+
+    // Debounce map movement (updates bounding box 800ms after you stop panning)
+    let moveTimeout = null;
+    map.on('moveend', () => {
+      clearTimeout(moveTimeout);
+      moveTimeout = setTimeout(() => {
+        sendViewportBounds();
+        pruneOffscreenVessels();
+      }, 800);
+    });
+
+    function pruneOffscreenVessels() {
+      const b = map.getBounds().pad(0.2); // keep a small buffer around the screen
+      vessels.forEach((ship, mmsi) => {
+        if (!b.contains([ship.lat, ship.lon])) {
+          map.removeLayer(ship.marker);
+          vessels.delete(mmsi);
+        }
+      });
+      vesselCount.innerText = `${vessels.size} ships`;
+    }
 
     ws.onopen = () => {
       statusDot.className = 'status-dot online';
       statusText.innerText = 'Live Feed';
+      // Send current screen area immediately upon connection
+      sendViewportBounds();
     };
 
     ws.onclose = () => {
@@ -165,22 +195,27 @@
         const meta = msg.MetaData;
 
         if (type === "PositionReport" || type === "StandardClassBPositionReport") {
-          const report = msg.Message[type];
+          const report = msg.Message?.[type];
+          if (!report) return;
+
           const mmsi = meta?.MMSI;
           const lat = meta?.Latitude ?? meta?.latitude ?? report?.Latitude;
           const lon = meta?.Longitude ?? meta?.longitude ?? report?.Longitude;
 
           if (!lat || !lon) return;
-          
+
+          // Only add if it's within our current view
+          if (!map.getBounds().pad(0.1).contains([lat, lon])) return;
+
           const heading = (report.TrueHeading === 511 || report.TrueHeading === undefined)
-          ? (report.Cog || 0)
-          : report.TrueHeading;
+            ? (report.Cog || 0)
+            : report.TrueHeading;
           const sog = report.Sog || 0;
 
           let ship = vessels.get(mmsi);
           if (!ship) {
             const marker = L.marker([lat, lon], { icon: createShipSvg(heading) }).addTo(map);
-            ship = { mmsi, lat, lon, heading, sog, name: meta.ShipName?.trim(), marker };
+            ship = { mmsi, lat, lon, heading, sog, name: meta?.ShipName?.trim(), marker };
             marker.on('click', () => openDrawer(ship));
             vessels.set(mmsi, ship);
           } else {
@@ -188,16 +223,14 @@
             ship.lon = lon;
             ship.heading = heading;
             ship.sog = sog;
-            if (meta.ShipName) ship.name = meta.ShipName.trim();
+            if (meta?.ShipName) ship.name = meta.ShipName.trim();
             ship.marker.setLatLng([lat, lon]);
             ship.marker.setIcon(createShipSvg(heading));
           }
-          vesselCount.innerText = `${vessels.size} vessels`;
+          vesselCount.innerText = `${vessels.size} ships`;
         }
       } catch (e) {
         // Skip malformed frames
       }
     };
   </script>
-</body>
-</html>
