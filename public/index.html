@@ -4,35 +4,51 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Vessel Radar</title>
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Reliable Leaflet CDN links -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body, html { width: 100%; height: 100%; overflow: hidden; background: #0a0f18; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    #map { width: 100%; height: 100%; }
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
+      overflow: hidden;
+      background-color: #1e293b; /* slate background instead of pure black */
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 1;
+    }
 
     /* Floating Status Bar */
     .status-bar {
-      position: absolute; top: 12px; left: 12px; z-index: 1000;
-      background: rgba(13, 20, 36, 0.88); backdrop-filter: blur(8px);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 24px; padding: 6px 14px;
-      color: #e2e8f0; font-size: 13px; font-weight: 500;
+      position: absolute; top: 14px; left: 14px; z-index: 1000;
+      background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 24px; padding: 8px 16px;
+      color: #f1f5f9; font-size: 13px; font-weight: 600;
       display: flex; align-items: center; gap: 8px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      box-shadow: 0 4px 15px rgba(0,0,0,0.4);
     }
-    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #eab308; }
+    .status-dot { width: 9px; height: 9px; border-radius: 50%; background: #eab308; }
     .status-dot.online { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
     .status-dot.offline { background: #ef4444; }
 
-    /* Bottom Vessel Card (Phone friendly drawer) */
+    /* Vessel Drawer */
     .vessel-drawer {
-      position: absolute; bottom: -250px; left: 0; right: 0; z-index: 1000;
-      background: #0d1527; border-top: 1px solid #1e293b;
+      position: absolute; bottom: -300px; left: 0; right: 0; z-index: 1001;
+      background: #0f172a; border-top: 1px solid #334155;
       padding: 16px; border-radius: 16px 16px 0 0;
       transition: bottom 0.25s ease; color: #f8fafc;
       box-shadow: 0 -4px 25px rgba(0,0,0,0.6);
@@ -40,14 +56,11 @@
     }
     .vessel-drawer.open { bottom: 0; }
     .drawer-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-    .drawer-title { font-size: 17px; font-weight: 600; color: #38bdf8; }
+    .drawer-title { font-size: 16px; font-weight: 600; color: #38bdf8; }
     .drawer-close { background: none; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; }
     .drawer-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; font-size: 13px; margin-top: 8px; }
-    .stat-label { color: #64748b; font-size: 11px; text-transform: uppercase; }
-    .stat-val { font-weight: 500; color: #e2e8f0; }
-
-    /* SVG Marker Rotation */
-    .ship-icon { transition: transform 0.3s ease; transform-origin: center center; }
+    .stat-label { color: #94a3b8; font-size: 11px; text-transform: uppercase; }
+    .stat-val { font-weight: 500; color: #f1f5f9; }
   </style>
 </head>
 <body>
@@ -61,7 +74,6 @@
 
   <div id="map"></div>
 
-  <!-- Mobile Inspector Card -->
   <div id="drawer" class="vessel-drawer">
     <div class="drawer-header">
       <div id="shipName" class="drawer-title">Vessel Details</div>
@@ -76,51 +88,49 @@
   </div>
 
   <script>
-    // 1. Base Map Layers
-    const baseMap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors', maxZoom: 19
-    });
-    const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-      attribution: 'Esri Satellite', maxZoom: 19
+    // 1. Base Map Setup
+    const osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors',
+      maxZoom: 19
     });
 
-    // Navigational River / Nautical Overlays
-    const openSeaMarks = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
-      attribution: 'OpenSeaMap', maxZoom: 18
-    });
-    const noaaCharts = L.tileLayer.wms('https://gis.chartmaker.ncd.noaa.gov/arcgis/rest/services/MCS/ENCOverlay/MapServer/exts/MaritimeChartService/WMSServer', {
-      layers: '0,1,2,3,4,5,6,7',
-      format: 'image/png',
-      transparent: true,
-      opacity: 0.75,
-      attribution: 'NOAA Charts'
+    const satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      attribution: 'Esri Satellite',
+      maxZoom: 19
     });
 
-    // Initialize Map
+    const seaMarks = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+      attribution: 'OpenSeaMap',
+      maxZoom: 18
+    });
+
     const map = L.map('map', {
-      center: [34.80, -87.67], // Centered on local waterway
+      center: [34.80, -87.67], // Centered on Pickwick/Wilson waterway
       zoom: 12,
-      layers: [baseMap, openSeaMarks]
+      layers: [osmLayer, seaMarks]
     });
+
+    // Force map recalculation to prevent black/blank rendering
+    setTimeout(() => { map.invalidateSize(); }, 200);
 
     L.control.layers(
-      { "OpenStreetMap": baseMap, "Satellite": satellite },
-      { "Nav Aids / Seamarks": openSeaMarks, "NOAA River Charts": noaaCharts },
+      { "Streets": osmLayer, "Satellite": satLayer },
+      { "River Nav Aids": seaMarks },
       { position: 'topright' }
     ).addTo(map);
 
-    // 2. State & Elements
+    // 2. State & UI Helpers
     const vessels = new Map();
     const statusDot = document.getElementById('statusDot');
     const statusText = document.getElementById('statusText');
     const vesselCount = document.getElementById('vesselCount');
 
-    function createShipSvg(heading, color = "#0284c7") {
+    function createShipSvg(heading) {
       const rot = heading || 0;
       return L.divIcon({
         className: 'ship-wrapper',
-        html: `<svg class="ship-icon" style="transform: rotate(${rot}deg);" width="24" height="24" viewBox="0 0 24 24">
-                 <path d="M12 2 L19 21 L12 17 L5 21 Z" fill="${color}" stroke="#ffffff" stroke-width="1.5"/>
+        html: `<svg style="transform: rotate(${rot}deg); display:block;" width="24" height="24" viewBox="0 0 24 24">
+                 <path d="M12 2 L19 21 L12 17 L5 21 Z" fill="#0284c7" stroke="#ffffff" stroke-width="1.5"/>
                </svg>`,
         iconSize: [24, 24],
         iconAnchor: [12, 12]
@@ -128,11 +138,11 @@
     }
 
     function openDrawer(v) {
-      document.getElementById('shipName').innerText = v.name || `Vessel ${v.mmsi}`;
+      document.getElementById('shipName').innerText = v.name || ('Vessel ' + v.mmsi);
       document.getElementById('shipMmsi').innerText = v.mmsi;
-      document.getElementById('shipSpeed').innerText = `${(v.sog || 0).toFixed(1)} kts / ${Math.round(v.cog || 0)}°`;
-      document.getElementById('shipType').innerText = v.type || "Commercial / Tow / Tug";
-      document.getElementById('shipHeading').innerText = `${v.heading || 0}°`;
+      document.getElementById('shipSpeed').innerText = (v.sog || 0).toFixed(1) + ' kts / ' + Math.round(v.cog || 0) + '°';
+      document.getElementById('shipType').innerText = v.type || "Commercial / Tow";
+      document.getElementById('shipHeading').innerText = (v.heading || 0) + '°';
       document.getElementById('drawer').classList.add('open');
     }
 
@@ -140,14 +150,37 @@
       document.getElementById('drawer').classList.remove('open');
     }
 
-    // 3. Connect WebSocket to your Server
+    function renderOrUpdateShip(shipData) {
+      const mmsi = shipData.mmsi;
+      const lat = shipData.lat;
+      const lon = shipData.lon;
+      const heading = shipData.heading || 0;
+
+      let existing = vessels.get(mmsi);
+      if (!existing) {
+        const marker = L.marker([lat, lon], { icon: createShipSvg(heading) }).addTo(map);
+        const record = Object.assign({}, shipData, { marker: marker });
+        marker.on('click', () => openDrawer(record));
+        vessels.set(mmsi, record);
+      } else {
+        existing.lat = lat;
+        existing.lon = lon;
+        existing.heading = heading;
+        existing.sog = shipData.sog;
+        if (shipData.name) existing.name = shipData.name;
+        existing.marker.setLatLng([lat, lon]);
+        existing.marker.setIcon(createShipSvg(heading));
+      }
+      vesselCount.innerText = vessels.size + ' ships';
+    }
+
+    // 3. WebSocket Connection
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${wsProtocol}//${window.location.host}`);
+    const ws = new WebSocket(wsProtocol + '//' + window.location.host);
 
     function sendViewportBounds() {
       if (ws.readyState !== WebSocket.OPEN) return;
       const b = map.getBounds();
-      // Format: [[NorthLat, WestLon], [SouthLat, EastLon]]
       const box = [
         [b.getNorth(), b.getWest()],
         [b.getSouth(), b.getEast()]
@@ -155,31 +188,15 @@
       ws.send(JSON.stringify({ type: 'SET_BOUNDS', box: box }));
     }
 
-    // Debounce map movement (updates bounding box 800ms after you stop panning)
     let moveTimeout = null;
     map.on('moveend', () => {
       clearTimeout(moveTimeout);
-      moveTimeout = setTimeout(() => {
-        sendViewportBounds();
-        pruneOffscreenVessels();
-      }, 800);
+      moveTimeout = setTimeout(sendViewportBounds, 800);
     });
-
-    function pruneOffscreenVessels() {
-      const b = map.getBounds().pad(0.2); // keep a small buffer around the screen
-      vessels.forEach((ship, mmsi) => {
-        if (!b.contains([ship.lat, ship.lon])) {
-          map.removeLayer(ship.marker);
-          vessels.delete(mmsi);
-        }
-      });
-      vesselCount.innerText = `${vessels.size} ships`;
-    }
 
     ws.onopen = () => {
       statusDot.className = 'status-dot online';
       statusText.innerText = 'Live Feed';
-      // Send current screen area immediately upon connection
       sendViewportBounds();
     };
 
@@ -192,55 +209,42 @@
       try {
         const msg = JSON.parse(event.data);
 
-        // Instant snapshot from server cache
+        // Snapshot dump from server
         if (msg.type === 'SNAPSHOT' && Array.isArray(msg.vessels)) {
-          msg.vessels.forEach(ship => {
-            if (!map.getBounds().pad(0.3).contains([ship.lat, ship.lon])) return;
-            if (!vessels.has(ship.mmsi)) {
-              const marker = L.marker([ship.lat, ship.lon], { icon: createShipSvg(ship.heading) }).addTo(map);
-              marker.on('click', () => openDrawer(ship));
-              vessels.set(ship.mmsi, { ...ship, marker });
-            }
-          });
-          vesselCount.innerText = `${vessels.size} ships`;
+          msg.vessels.forEach(ship => renderOrUpdateShip(ship));
           return;
         }
 
-        // Handle live continuous updates
+        // Live AIS messages
         const type = msg.MessageType;
         const meta = msg.MetaData;
+
         if (type === "PositionReport" || type === "StandardClassBPositionReport") {
-          const report = msg.Message?.[type];
+          const report = msg.Message && msg.Message[type];
           if (!report) return;
 
-          const mmsi = meta?.MMSI;
-          const lat = meta?.Latitude ?? meta?.latitude ?? report?.Latitude;
-          const lon = meta?.Longitude ?? meta?.longitude ?? report?.Longitude;
-          if (!lat || !lon) return;
-
-          if (!map.getBounds().pad(0.2).contains([lat, lon])) return;
+          const lat = meta && (meta.Latitude !== undefined ? meta.Latitude : meta.latitude);
+          const lon = meta && (meta.Longitude !== undefined ? meta.Longitude : meta.longitude);
+          if (lat === undefined || lon === undefined) return;
 
           const heading = (report.TrueHeading === 511 || report.TrueHeading === undefined)
-            ? (report.Cog || 0) : report.TrueHeading;
-          const sog = report.Sog || 0;
+            ? (report.Cog || 0)
+            : report.TrueHeading;
 
-          let ship = vessels.get(mmsi);
-          if (!ship) {
-            const marker = L.marker([lat, lon], { icon: createShipSvg(heading) }).addTo(map);
-            ship = { mmsi, lat, lon, heading, sog, name: meta?.ShipName?.trim(), marker };
-            marker.on('click', () => openDrawer(ship));
-            vessels.set(mmsi, ship);
-          } else {
-            ship.lat = lat;
-            ship.lon = lon;
-            ship.heading = heading;
-            ship.sog = sog;
-            if (meta?.ShipName) ship.name = meta.ShipName.trim();
-            ship.marker.setLatLng([lat, lon]);
-            ship.marker.setIcon(createShipSvg(heading));
-          }
-          vesselCount.innerText = `${vessels.size} ships`;
+          renderOrUpdateShip({
+            mmsi: meta.MMSI,
+            lat: lat,
+            lon: lon,
+            heading: heading,
+            sog: report.Sog || 0,
+            cog: report.Cog || 0,
+            name: meta.ShipName ? meta.ShipName.trim() : ('MMSI ' + meta.MMSI)
+          });
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error("Parse error:", e);
+      }
     };
-    
+  </script>
+</body>
+</html>
