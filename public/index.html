@@ -142,185 +142,155 @@
   </div>
 
   <script>
-    // 1. Base Map Layers
-    const osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors',
-      maxZoom: 19
-    });
-
-    const satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-      attribution: 'Esri Satellite',
-      maxZoom: 19
-    });
-
-    // 2. Navigational Overlays (Using native WMS & tile layers - no external plugins)
-    const openSeaMarks = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
-      attribution: 'OpenSeaMap',
-      maxZoom: 18
-    });
-
-   const noaaCharts = L.tileLayer.wms('https://gis.charttools.noaa.gov/arcgis/rest/services/MCS/ENCOverlay/MapServer/exts/MaritimeChartService/WMSServer', {
-        layers: '0',
-        format: 'image/png',
-        transparent: true,
-        version: '1.3.0',
-        opacity: 0.85,
-        attribution: 'NOAA Charts'
+   // 1. Base Map Layers
+      const osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 19
       });
 
-    const iencRiverCharts = L.tileLayer('https://ienccloud.us/tiles/ienc/{z}/{x}/{y}.png', {
-      maxZoom: 18,
-      opacity: 0.85,
-      attribution: '&copy; USACE / ienccloud.us'
-    });
-
-    const iencWmsLayer = L.tileLayer.wms('https://ienccloud.us/geoserver/wms', {
-      layers: 'ienc:ienc_all', // or individual sublayers
-      format: 'image/png',
-      transparent: true,
-      version: '1.1.1',
-      opacity: 0.85,
-      attribution: 'USACE Inland Charts'
-    });
-
-    // 3. Initialize Map
-    const map = L.map('map', {
-      center: [34.80, -87.67],
-      zoom: 12,
-      layers: [osmLayer, openSeaMarks]
-    });
-
-    setTimeout(() => { map.invalidateSize(); }, 200);
-
-    L.control.layers(
-      { "Streets": osmLayer, "Satellite": satLayer },
-      { "River Nav Aids": openSeaMarks, "River Charts": iencRiverCharts },
-      { position: 'topright' }
-    ).addTo(map);
-
-    // 4. State & Helpers
-    const vessels = new Map();
-    const statusDot = document.getElementById('statusDot');
-    const statusText = document.getElementById('statusText');
-    const vesselCount = document.getElementById('vesselCount');
-
-    function createShipSvg(heading) {
-      const rot = heading || 0;
-      return L.divIcon({
-        className: 'ship-wrapper',
-        html: `<svg style="transform: rotate(${rot}deg); display:block;" width="24" height="24" viewBox="0 0 24 24">
-                 <path d="M12 2 L19 21 L12 17 L5 21 Z" fill="#0284c7" stroke="#ffffff" stroke-width="1.5"/>
-               </svg>`,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12]
+      const satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Esri Satellite',
+        maxZoom: 19
       });
-    }
 
-    function openDrawer(v) {
-      document.getElementById('shipName').innerText = v.name || ('Vessel ' + v.mmsi);
-      document.getElementById('shipMmsi').innerText = v.mmsi;
-      document.getElementById('shipSpeed').innerText = (v.sog || 0).toFixed(1) + ' kts / ' + Math.round(v.cog || 0) + '°';
-      document.getElementById('shipType').innerText = v.type || "Commercial / Tow";
-      document.getElementById('shipHeading').innerText = (v.heading || 0) + '°';
-      document.getElementById('drawer').classList.add('open');
-    }
+      // 2. OpenSeaMap for coastal/lake dayboards & lights
+      const openSeaMarks = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+        attribution: 'OpenSeaMap',
+        maxZoom: 18
+      });
 
-    function closeDrawer() {
-      document.getElementById('drawer').classList.remove('open');
-    }
-    function renderOrUpdateShip(shipData) {
-      const mmsi = shipData.mmsi;
-      const lat = shipData.lat;
-      const lon = shipData.lon;
-      const heading = shipData.heading || 0;
+      // 3. Vector Layer for River Navigation Features
+      const riverAidsLayer = L.layerGroup();
 
-      let existing = vessels.get(mmsi);
-      if (!existing) {
-        const marker = L.marker([lat, lon], { icon: createShipSvg(heading) }).addTo(map);
-        const record = Object.assign({}, shipData, { marker: marker });
-        marker.on('click', () => openDrawer(record));
-        vessels.set(mmsi, record);
-      } else {
-        existing.lat = lat;
-        existing.lon = lon;
-        existing.heading = heading;
-        existing.sog = shipData.sog;
-        if (shipData.name) existing.name = shipData.name;
-        existing.marker.setLatLng([lat, lon]);
-        existing.marker.setIcon(createShipSvg(heading));
-      }
-      vesselCount.innerText = vessels.size + ' ships';
-    }
+      // Initialize Map (Centered on Florence / Muscle Shoals / Wilson Lake)
+      const map = L.map('map', {
+        center: [34.80, -87.67],
+        zoom: 13,
+        layers: [osmLayer, riverAidsLayer, openSeaMarks]
+      });
 
-    // 5. WebSocket Connection
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(wsProtocol + '//' + window.location.host);
+      setTimeout(() => { map.invalidateSize(); }, 250);
 
-    function sendViewportBounds() {
-      if (ws.readyState !== WebSocket.OPEN) return;
-      const b = map.getBounds();
-      const box = [
-        [b.getNorth(), b.getWest()],
-        [b.getSouth(), b.getEast()]
-      ];
-      ws.send(JSON.stringify({ type: 'SET_BOUNDS', box: box }));
-    }
+      L.control.layers(
+        { "Streets": osmLayer, "Satellite": satLayer },
+        { 
+          "River Mile Markers & Locks": riverAidsLayer,
+          "Nav Lights & Buoys": openSeaMarks
+        },
+        { position: 'topright' }
+      ).addTo(map);
 
-    let moveTimeout = null;
-    map.on('moveend', () => {
-      clearTimeout(moveTimeout);
-      moveTimeout = setTimeout(sendViewportBounds, 800);
-    });
-
-    ws.onopen = () => {
-      statusDot.className = 'status-dot online';
-      statusText.innerText = 'Live Feed';
-      sendViewportBounds();
-    };
-
-    ws.onclose = () => {
-      statusDot.className = 'status-dot offline';
-      statusText.innerText = 'Offline';
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-
-        if (msg.type === 'SNAPSHOT' && Array.isArray(msg.vessels)) {
-          msg.vessels.forEach(ship => renderOrUpdateShip(ship));
+      // Fetch River Mile Markers, Locks, Dams, and Marinas dynamically
+      function loadRiverNavFeatures() {
+        // Only load when zoomed in enough to prevent huge network payloads
+        if (map.getZoom() < 11) {
+          riverAidsLayer.clearLayers();
           return;
         }
 
-        const type = msg.MessageType;
-        const meta = msg.MetaData;
+        const b = map.getBounds();
+        const bbox = `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`;
+        
+        const query = `[out:json][timeout:10];
+          (
+            node["waterway"="milestone"](${bbox});
+            node["seamark:type"="distance_mark"](${bbox});
+            node["waterway"="lock_gate"](${bbox});
+            node["waterway"="dam"](${bbox});
+            node["leisure"="marina"](${bbox});
+          );
+          out body;`;
 
-        if (type === "PositionReport" || type === "StandardClassBPositionReport") {
-          const report = msg.Message && msg.Message[type];
-          if (!report) return;
+        fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`)
+          .then(res => res.json())
+          .then(data => {
+            riverAidsLayer.clearLayers();
+            if (!data.elements) return;
 
-          const lat = meta && (meta.Latitude !== undefined ? meta.Latitude : meta.latitude);
-          const lon = meta && (meta.Longitude !== undefined ? meta.Longitude : meta.longitude);
-          if (lat === undefined || lon === undefined) return;
+            data.elements.forEach(el => {
+              const tags = el.tags || {};
+              let iconHtml = '';
+              let label = '';
 
-          const heading = (report.TrueHeading === 511 || report.TrueHeading === undefined)
-            ? (report.Cog || 0)
-            : report.TrueHeading;
+              // River Mile Markers (e.g. Mile 256)
+              if (tags.waterway === 'milestone' || tags['seamark:type'] === 'distance_mark' || tags.distance) {
+                const mile = tags.distance || tags.ref || tags.name || '';
+                iconHtml = `<div style="
+                  background: #0284c7;
+                  color: #ffffff;
+                  border: 1.5px solid #ffffff;
+                  border-radius: 4px;
+                  padding: 1px 4px;
+                  font-size: 10px;
+                  font-weight: 700;
+                  white-space: nowrap;
+                  box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+                  transform: translate(-50%, -50%);
+                ">M ${mile}</div>`;
+                label = `River Mile ${mile}`;
+              }
+              // Locks & Dams
+              else if (tags.waterway === 'lock_gate' || tags.waterway === 'dam') {
+                const isDam = tags.waterway === 'dam';
+                iconHtml = `<div style="
+                  background: #dc2626;
+                  color: #fff;
+                  border: 2px solid #fff;
+                  border-radius: 50%;
+                  width: 22px;
+                  height: 22px;
+                  font-size: 12px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+                  transform: translate(-50%, -50%);
+                ">${isDam ? '🧱' : '⚓'}</div>`;
+                label = tags.name || (isDam ? 'Dam' : 'Lock Chamber');
+              }
+              // Marinas & Docks
+              else if (tags.leisure === 'marina') {
+                iconHtml = `<div style="
+                  background: #16a34a;
+                  color: #fff;
+                  border: 2px solid #fff;
+                  border-radius: 50%;
+                  width: 20px;
+                  height: 20px;
+                  font-size: 11px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+                  transform: translate(-50%, -50%);
+                ">⛵</div>`;
+                label = tags.name || 'Marina';
+              }
 
-          renderOrUpdateShip({
-            mmsi: meta.MMSI,
-            lat: lat,
-            lon: lon,
-            heading: heading,
-            sog: report.Sog || 0,
-            cog: report.Cog || 0,
-            name: meta.ShipName ? meta.ShipName.trim() : ('MMSI ' + meta.MMSI)
-          });
-        }
-      } catch (e) {
-        console.error("Parse error:", e);
+              if (iconHtml) {
+                const customIcon = L.divIcon({
+                  className: 'river-feature-badge',
+                  html: iconHtml,
+                  iconSize: [0, 0]
+                });
+
+                L.marker([el.lat, el.lon], { icon: customIcon })
+                  .bindPopup(`<strong>${label}</strong>`)
+                  .addTo(riverAidsLayer);
+              }
+            });
+          })
+          .catch(err => console.warn("River aids fetch note:", err.message));
       }
-    };
+
+      // Initial load & update on pan/zoom
+      loadRiverNavFeatures();
+
+      let navDebounce = null;
+      map.on('moveend', () => {
+        clearTimeout(navDebounce);
+        navDebounce = setTimeout(loadRiverNavFeatures, 600);
+      });
   </script>
 </body>
 </html>
