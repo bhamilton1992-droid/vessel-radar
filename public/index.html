@@ -168,6 +168,21 @@
         attribution: 'NOAA Charts'
       });
 
+    const iencRiverCharts = L.tileLayer('https://ienccloud.us/tiles/ienc/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+      opacity: 0.85,
+      attribution: '&copy; USACE / ienccloud.us'
+    });
+
+    const iencWmsLayer = L.tileLayer.wms('https://ienccloud.us/geoserver/wms', {
+      layers: 'ienc:ienc_all', // or individual sublayers
+      format: 'image/png',
+      transparent: true,
+      version: '1.1.1',
+      opacity: 0.85,
+      attribution: 'USACE Inland Charts'
+    });
+
     // 3. Initialize Map
     const map = L.map('map', {
       center: [34.80, -87.67],
@@ -179,7 +194,7 @@
 
     L.control.layers(
       { "Streets": osmLayer, "Satellite": satLayer },
-      { "River Nav Aids": openSeaMarks, "NOAA Nautical Charts": noaaCharts },
+      { "River Nav Aids": openSeaMarks, "River Charts": iencRiverCharts },
       { position: 'topright' }
     ).addTo(map);
 
