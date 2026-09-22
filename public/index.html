@@ -8,6 +8,8 @@
   <!-- Reliable Leaflet CDN links -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <!-- ArcGIS Dynamic Map Support -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/esri-leaflet/3.0.12/esri-leaflet.js"></script>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -101,19 +103,17 @@
 
     // 1. USACE Inland River Chart Overlay (Sailing Lines, Mile Markers, Locks, Cells)
     // Uses ArcGIS MapServer export tiles for high crispness
-    const usaceRiverCharts = L.tileLayer('https://ags02.sec.usace.army.mil/server/rest/services/IENC/IENC_Web_Map/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 18,
+   const usaceRiverCharts = L.esri.dynamicMapLayer({
+      url: 'https://ags02.sec.usace.army.mil/server/rest/services/IENC/IENC_Web_Map/MapServer',
       opacity: 0.85,
-      attribution: 'USACE Inland ENC'
+      useCors: true
     });
 
     // 2. NOAA Inland / Coastal Navigational ENC Overlay (Depth soundings, buoys, hazards)
-    const noaaCharts = L.tileLayer.wms('https://gis.chartmaker.ncd.noaa.gov/arcgis/rest/services/MCS/ENCOverlay/MapServer/exts/MaritimeChartService/WMSServer', {
-      layers: '0,1,2,3,4,5,6,7',
-      format: 'image/png',
-      transparent: true,
-      opacity: 0.8,
-      attribution: 'NOAA Office of Coast Survey'
+    const noaaCharts = L.esri.dynamicMapLayer({
+      url: 'https://gis.chartmaker.ncd.noaa.gov/arcgis/rest/services/MCS/ENCOverlay/MapServer/exts/MaritimeChartService/MapServer',
+      opacity: 0.75,
+      useCors: true
     });
 
     // 3. OpenSeaMap (Buoys & Seamarks)
@@ -139,7 +139,7 @@
       { 
         "USACE River Charts (Miles/Locks)": usaceRiverCharts,
         "NOAA Nautical Charts": noaaCharts,
-        "Buoys & Beacons": seaMarks
+        "Buoys & Daymarks": seaMarks
       },
       { position: 'topright', collapsed: true }
     ).addTo(map);
