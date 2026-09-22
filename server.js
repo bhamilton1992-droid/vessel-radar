@@ -34,12 +34,31 @@ function connectAISStream() {
     const subscription = {
       APIKey: AIS_KEY,
       BoundingBoxes: [
-        [[[49.5, -125.0], [24.0, -66.5]]]
+        // US Gulf Coast & Inland River Basins (New Orleans, Houston, Mobile, MS/TN/OH Rivers)
+        [[[36.5, -95.0], [24.5, -84.0]]],
+        // US East Coast (Florida up to New York / Chesapeake)
+        [[[41.5, -82.0], [25.0, -70.0]]],
+        // US West Coast (SoCal up to Puget Sound)
+        [[[49.0, -125.0], [32.0, -117.0]]]
       ],
       FilterMessageTypes: ["PositionReport"]
     };
     
     aisSocket.send(JSON.stringify(subscription));
+    console.log("Subscription sent successfully!");
+    
+    let packetCount = 0;
+  aisSocket.on("message", (raw) => {
+    packetCount++;
+    if (packetCount % 50 === 0) {
+      console.log(`Relayed ${packetCount} live AIS frames...`);
+    }
+    const payload = raw.toString();
+    wss.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(payload);
+      }
+    });
   });
 
   aisSocket.on("message", (raw) => {
