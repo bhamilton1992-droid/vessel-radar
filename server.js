@@ -8,49 +8,52 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 const PORT = process.env.PORT || 3000;
-const AIS_KEY = process.env.AISSTREAM_API_KEY || '';
+const AIS_KEY = (process.env.AISSTREAM_API_KEY || '').trim();
 
 // Serve static web files
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Connect to AISStream.io server-side
 let aisSocket = null;
 function connectAISStream() {
   if (!AIS_KEY) {
-    console.warn("No AISSTREAM_API_KEY set. Ingestion paused.");
+    console.error("FATAL: AISSTREAM_API_KEY environment variable is missing or empty!");
     return;
   }
 
-  console.log("Connecting to AISStream.io...");
-  aisSocket = new WebSocket("wss://stream.aisstream.io/v0/stream");
+  console.log(`Connecting to AISStream with key: ${AIS_KEY.substring(0, 4)}****`);
+  
+  // AISStream requires perMessageDeflate compression
+  aisSocket = new WebSocket("wss://stream.aisstream.io/v0/stream", {
+    perMessageDeflate: true
+  });
 
   aisSocket.on("open", () => {
-    console.log("Connected to AISStream! Subscribing...");
-    // Contiguous United States (lower 48)
+    console.log("Connected to AISStream! Sending subscription...");
+    
+    // Exact format required: [[[NorthLat, WestLon], [SouthLat, EastLon]]]
     const subscription = {
       APIKey: AIS_KEY,
-      BoundingBoxes: [[[24.0, -125.0], [49.5, -66.5]]],
-      FilterMessageTypes: [
-        "PositionReport", 
-        "StandaredClassBPositionReport",
-        "ExtendedClassBPositionReport",
-        "ShipStaticData"
-      ]
+      BoundingBoxes: [
+        [[[49.5, -125.0], [24.0, -66.5]]]
+      ],
+      FilterMessageTypes: ["PositionReport"]
     };
+    
     aisSocket.send(JSON.stringify(subscription));
   });
 
   aisSocket.on("message", (raw) => {
-    // Broadcast live packets to all connected phones/browsers
+    // Forward live stream to all connected phones/browsers
+    const payload = raw.toString();
     wss.clients.forEach(client => {
       if (client.readyState === WebSocket.OPEN) {
-        client.send(raw.toString());
+        client.send(payload);
       }
     });
   });
 
-  aisSocket.on("close", () => {
-    console.log("AISStream connection closed. Reconnecting in 5s...");
+  aisSocket.on("close", (code, reason) => {
+    console.log(`AISStream connection closed [Code: ${code}] Reason: ${reason ? reason.toString() : 'None'}. Reconnecting in 5s...`);
     setTimeout(connectAISStream, 5000);
   });
 
