@@ -14,11 +14,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 let aisSocket = null;
 let currentBoundingBox = null;
-
-// Keep an active cache of recent vessels (MMSI -> vessel data)
 const vesselCache = new Map();
 
-// Prune vessels not heard from in 45 minutes
+// Remove vessels not heard from in 45 minutes
 setInterval(() => {
   const cutoff = Date.now() - (45 * 60 * 1000);
   for (const [mmsi, data] of vesselCache.entries()) {
@@ -28,6 +26,7 @@ setInterval(() => {
 
 function sendAISSubscription() {
   if (!aisSocket || aisSocket.readyState !== WebSocket.OPEN) return;
+  // Default box if none sent by user
   const box = currentBoundingBox || [[36.5, -90.5], [33.0, -84.5]];
 
   const subscription = {
@@ -38,16 +37,22 @@ function sendAISSubscription() {
 
   try {
     aisSocket.send(JSON.stringify(subscription));
+    console.log(`[AISStream] Subscribed to box: [${box[0][0].toFixed(2)}, ${box[0][1].toFixed(2)}] to [${box[1][0].toFixed(2)}, ${box[1][1].toFixed(2)}]`);
   } catch (err) {
     console.error("Subscription error:", err.message);
   }
 }
 
 function connectAISStream() {
-  if (!AIS_KEY) return;
+  if (!AIS_KEY) {
+    console.error("FATAL: AISSTREAM_API_KEY is missing on Render!");
+    return;
+  }
+
   aisSocket = new WebSocket("wss://stream.aisstream.io/v0/stream", { perMessageDeflate: true });
 
   aisSocket.on("open", () => {
+    console.log("Connected to AISStream!");
     sendAISSubscription();
   });
 
@@ -58,26 +63,26 @@ function connectAISStream() {
       const meta = msg.MetaData;
 
       if (type === "PositionReport" || type === "StandardClassBPositionReport") {
-        const report = msg.Message?.[type];
-        const mmsi = meta?.MMSI;
-        const lat = meta?.Latitude ?? meta?.latitude;
-        const lon = meta?.Longitude ?? meta?.longitude;
+        const report = msg.Message && msg.Message[type];
+        const mmsi = meta && meta.MMSI;
+        const lat = meta && (meta.Latitude !== undefined ? meta.Latitude : meta.latitude);
+        const lon = meta && (meta.Longitude !== undefined ? meta.Longitude : meta.longitude);
 
-        if (mmsi && lat && lon) {
+        if (mmsi && lat !== undefined && lon !== undefined) {
           vesselCache.set(mmsi, {
-            mmsi,
-            lat,
-            lon,
-            heading: report.TrueHeading === 511 || report.TrueHeading === undefined ? (report.Cog || 0) : report.TrueHeading,
+            mmsi: mmsi,
+            lat: lat,
+            lon: lon,
+            heading: (report.TrueHeading === 511 || report.TrueHeading === undefined) ? (report.Cog || 0) : report.TrueHeading,
             sog: report.Sog || 0,
             cog: report.Cog || 0,
-            name: meta?.ShipName?.trim() || `MMSI ${mmsi}`,
+            name: (meta.ShipName && meta.ShipName.trim()) || `MMSI ${mmsi}`,
             lastSeen: Date.now()
           });
         }
       }
 
-      // Broadcast update
+      // Broadcast to connected web clients
       const payload = raw.toString();
       wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) client.send(payload);
@@ -85,14 +90,20 @@ function connectAISStream() {
     } catch (e) {}
   });
 
-  aisSocket.on("close", () => setTimeout(connectAISStream, 5000));
-  aisSocket.on("error", () => {});
+  aisSocket.on("close", (code) => {
+    console.log(`AISStream closed [Code: ${code}]. Reconnecting in 5s...`);
+    setTimeout(connectAISStream, 5000);
+  });
+
+  aisSocket.on("error", (err) => {
+    console.error("AISStream error:", err.message);
+  });
 }
 
 connectAISStream();
 
 wss.on('connection', (client) => {
-  // 1. Immediately dump cached fleet into newly opened browser
+  // Send cached vessels immediately on connect
   const snapshot = Array.from(vesselCache.values());
   client.send(JSON.stringify({ type: 'SNAPSHOT', vessels: snapshot }));
 
@@ -107,4 +118,6 @@ wss.on('connection', (client) => {
   });
 });
 
-server.listen(PORT, () => console.log(`Listening on :${PORT}`));
+server.listen(PORT, () => {
+  console.log(`Radar server listening on port ${PORT}`);
+});
