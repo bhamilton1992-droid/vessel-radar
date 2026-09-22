@@ -31,10 +31,10 @@ function connectAISStream() {
       APIKey: AIS_KEY,
       BoundingBoxes: [[[24.0, -125.0], [49.5, -66.5]]],
       FilterMessageTypes: [
-        "PositionReport",
-        "ShipStaticData", 
+        "PositionReport", 
         "StandaredClassBPositionReport",
-        "ExtendedClassBPositionReport"
+        "ExtendedClassBPositionReport",
+        "ShipStaticData"
       ]
     };
     aisSocket.send(JSON.stringify(subscription));
