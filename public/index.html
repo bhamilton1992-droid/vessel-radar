@@ -114,6 +114,33 @@
     .stat-val { font-weight: 500; color: #f1f5f9; margin-top: 2px; }
   </style>
 
+  <body>
+
+  <!-- 1. The status bar -->
+  <div class="status-bar">
+    <div id="statusDot" class="status-dot"></div>
+    <span id="statusText">Connecting...</span>
+    <span style="color:#64748b;">|</span>
+    <span id="vesselCount">0 ships</span>
+  </div>
+
+  <!-- 2. THE MAP DIV MUST BE HERE (ABOVE THE SCRIPT TAG) -->
+  <div id="map"></div>
+
+  <!-- 3. The drawer -->
+  <div id="drawer" class="vessel-drawer">
+    <div class="drawer-header">
+      <div id="shipName" class="drawer-title">Vessel Details</div>
+      <button class="drawer-close" onclick="closeDrawer()">✕</button>
+    </div>
+    <div class="drawer-grid">
+      <div><div class="stat-label">MMSI</div><div id="shipMmsi" class="stat-val">-</div></div>
+      <div><div class="stat-label">Speed / Course</div><div id="shipSpeed" class="stat-val">-</div></div>
+      <div><div class="stat-label">Type</div><div id="shipType" class="stat-val">-</div></div>
+      <div><div class="stat-label">Heading</div><div id="shipHeading" class="stat-val">-</div></div>
+    </div>
+  </div>
+
   <script>
     // 1. Base Map Layers
     const osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
