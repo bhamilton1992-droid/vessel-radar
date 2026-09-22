@@ -5,10 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Vessel Radar</title>
   
-  <!-- Reliable Leaflet CDN links -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
-  <!-- ArcGIS Dynamic Map Support -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/esri-leaflet/3.0.12/esri-leaflet.js"></script>
+  <!-- Official Leaflet CDN (Styles first, then Script) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -17,7 +16,7 @@
       height: 100vh;
       height: 100dvh;
       overflow: hidden;
-      background-color: #1e293b; /* slate background instead of pure black */
+      background-color: #0f172a;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
 
@@ -32,7 +31,6 @@
       z-index: 1;
     }
 
-    /* Floating Status Bar */
     .status-bar {
       position: absolute; top: 14px; left: 14px; z-index: 1000;
       background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(8px);
@@ -46,7 +44,6 @@
     .status-dot.online { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
     .status-dot.offline { background: #ef4444; }
 
-    /* Vessel Drawer */
     .vessel-drawer {
       position: absolute; bottom: -300px; left: 0; right: 0; z-index: 1001;
       background: #0f172a; border-top: 1px solid #334155;
@@ -89,7 +86,7 @@
   </div>
 
   <script>
-    // 1. Base Map Setup
+    // 1. Base Map Layers
     const osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors',
       maxZoom: 19
@@ -100,57 +97,37 @@
       maxZoom: 19
     });
 
-    // 1. NOAA Official Navigational Charts (WMS - Standard image requests, no CORS blocks)
-    // Provides depth soundings, buoys, lights, daybeacons, dredged channels, and hazards
+    // 2. Navigational Overlays (Using native WMS & tile layers - no external plugins)
+    const openSeaMarks = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+      attribution: 'OpenSeaMap',
+      maxZoom: 18
+    });
+
     const noaaCharts = L.tileLayer.wms('https://gis.chartmaker.ncd.noaa.gov/arcgis/rest/services/MCS/ENCOverlay/MapServer/exts/MaritimeChartService/WMSServer', {
       layers: '0',
       format: 'image/png',
       transparent: true,
       version: '1.3.0',
       opacity: 0.85,
-      attribution: 'NOAA Office of Coast Survey'
+      attribution: 'NOAA Charts'
     });
 
-    // 2. OpenSeaMap Seamarks (Buoys, beacons, port signals, lock gates)
-    const openSeaMarks = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
-      maxZoom: 18,
-      attribution: 'OpenSeaMap'
-    });
-
-    // 3. OpenRailway & Infrastructure Layer (Shows rail drawbridges, locks, & crossing structures)
-    const riverInfrastructure = L.tileLayer('https://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      opacity: 0.7,
-      attribution: 'OpenRailwayMap'
-    });
-
+    // 3. Initialize Map
     const map = L.map('map', {
-      center: [34.80, -87.67], // Centered on Pickwick/Wilson waterway
+      center: [34.80, -87.67],
       zoom: 12,
-      layers: [osmLayer, seaMarks]
+      layers: [osmLayer, openSeaMarks]
     });
 
-    // Force map recalculation to prevent black/blank rendering
     setTimeout(() => { map.invalidateSize(); }, 200);
 
-   L.control.layers(
-      { 
-        "Streets": osmLayer, 
-        "Satellite": satLayer 
-      },
-      { 
-        "NOAA Nautical Charts": noaaCharts,
-        "River Aids & Seamarks": openSeaMarks,
-        "Bridges & Locks Infrastructure": riverInfrastructure
-      },
-      { position: 'topright', collapsed: true }
+    L.control.layers(
+      { "Streets": osmLayer, "Satellite": satLayer },
+      { "River Nav Aids": openSeaMarks, "NOAA Nautical Charts": noaaCharts },
+      { position: 'topright' }
     ).addTo(map);
 
-    // Turn both on by default so they display immediately
-    noaaCharts.addTo(map);
-    openSeaMarks.addTo(map);
-    
-    // 2. State & UI Helpers
+    // 4. State & Helpers
     const vessels = new Map();
     const statusDot = document.getElementById('statusDot');
     const statusText = document.getElementById('statusText');
@@ -205,7 +182,7 @@
       vesselCount.innerText = vessels.size + ' ships';
     }
 
-    // 3. WebSocket Connection
+    // 5. WebSocket Connection
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(wsProtocol + '//' + window.location.host);
 
@@ -240,13 +217,11 @@
       try {
         const msg = JSON.parse(event.data);
 
-        // Snapshot dump from server
         if (msg.type === 'SNAPSHOT' && Array.isArray(msg.vessels)) {
           msg.vessels.forEach(ship => renderOrUpdateShip(ship));
           return;
         }
 
-        // Live AIS messages
         const type = msg.MessageType;
         const meta = msg.MetaData;
 
